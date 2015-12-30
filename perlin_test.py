@@ -1,153 +1,138 @@
-"""
-Test project to attempt to implement some perlin noise in python.
-"""
-
 import math
 import random
+
 import pygame
+import pygame.gfxdraw
 from pygame.locals import *
 
-def CreateEmptyGrid(width, height):
-	grid = []
-	for i in range(width):
-		grid.append([])
-		for n in range(height):
-			grid[i].append(0.000)
+print "initializing pygame..."
+pygame.init()
 
-	return grid
+def Interpolate(a, b, x):
+    ft = x * 3.1415927
+    f = (1 - math.cos(ft)) * .5
 
-def GenerateWhiteNoise(width, height, seed):
-	print "creating white noise"
-	local_generator = random.Random()
-	local_generator.seed(seed)
-	noise = CreateEmptyGrid(width, height)
+    return a*(1-f) + b*f
 
-	for col in range(len(noise)):
-		for row in range(len(noise[col])):
-			noise[col][row] = local_generator.random()
+def Noise1(x):
+    x = (x<<13) ^ x
+    return ( 1.0 - ( (x * (x * x * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);  
 
-	return noise
+def SmoothedNoise(x):
+    return Noise1(x)/2 + Noise1(x-1)/4 + Noise1(x+1)/4
 
-def Interpolate(x0, x1, alpha):
-	return x0 * (1 - alpha) + alpha * x1
+def InterpolatedNoise_1(x):
 
-def GenerateSmoothNoise(baseNoise, octave):
-	print "creating smooth noise, octave " + str(octave)
-	width = len(baseNoise)
-	height = len(baseNoise[0])
+    int_X = int(x)
+    fractional_X = x - int_X
 
-	smoothNoise = CreateEmptyGrid(width, height)
+    v1 = SmoothedNoise(int_X)
+    v2 = SmoothedNoise(int_X+1)
 
-	samplePeriod = math.pow(2, octave)
-	sampleFrequency = 1.0/samplePeriod
+    return Interpolate(v1, v2, fractional_X)
 
-	for i in range(width):
-		# calculate horizontal sampling indices
-		sample_i0 = int(math.floor((i / samplePeriod))) * samplePeriod
-		#print str(type(sample_i0))
-		sample_i1 = int(math.floor(sample_i0 + samplePeriod)) % width #wrap around
-		#print str(type(sample_i1))
-		horizontal_blend = (i - sample_i0) * sampleFrequency
+def PerlinNoise_1D(x):
+    
+    total = 0
+    p = 0.20
+    n = 7
 
-		for j in range(height):
-			# calculate vertical sampling indices
-			sample_j0 = int(math.floor(j / samplePeriod)) * samplePeriod
-			#print str(type(sample_j0))
-			sample_j1 = int(math.floor((sample_j0 + samplePeriod))) % height #wrap around
-			#print str(type(sample_j1))
-			vertical_blend = (j - sample_j0) * sampleFrequency
+    for i in range(n):
 
-			#blend the top two corners
-			top = Interpolate(baseNoise[int(sample_i0)][int(sample_j0)],
-            baseNoise[int(sample_i1)][int(sample_j0)], horizontal_blend)
+        if i == 0:
+            frequency = 1.0
+            amplitude = 1.0
+        else:
+            frequency = 2*i
+            amplitude = p*i
 
-			#blend the bottom two corners
-			bottom = Interpolate(baseNoise[int(sample_i0)][int(sample_j1)],
-            baseNoise[int(sample_i1)][int(sample_j1)], horizontal_blend)
+        total = total + InterpolatedNoise_1(x * frequency) * amplitude
 
-			#final blend
-			smoothNoise[i][j] = Interpolate(top, bottom, vertical_blend)
+    return total
 
-	return smoothNoise
+def Noise2(x, y):
+    n = x + y * 57
+    n = (n<<13) ^ n
+    return (1.0 - ( (n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0)
 
-def GeneratePerlinNoise(baseNoise, octaveCount):
-	print "making da perlinz..."
+def SmoothNoise_2(x, y):
+    corners = (Noise2(x-1, y-1)+Noise2(x+1, y-1)+Noise2(x-1, y+1)+Noise2(x+1, y+1) )/16
+    sides = ( Noise2(x-1, y)+Noise2(x+1, y)+Noise2(x, y-1)+Noise2(x, y+1))/8
+    centre = Noise2(x,y) / 4
+    return corners + sides + centre
 
-	width = len(baseNoise)
-	height = len(baseNoise[0])
+def InterpolatedNoise_2(x, y):
 
-	smoothNoise = []
+    int_X = int(x)
+    fractional_X = x - int_X
 
-	persistance = 0.5
+    int_Y = int(y)
+    fractional_Y = y - int_Y
 
-	# generate smooth noise
-	for i in range(octaveCount):
-		smoothNoise.append(GenerateSmoothNoise(baseNoise, i))
+    v1 = SmoothNoise_2(int_X, int_Y)
+    v2 = SmoothNoise_2(int_X+1, int_Y)
+    v3 = SmoothNoise_2(int_X, int_Y+1)
+    v4 = SmoothNoise_2(int_X+1, int_Y+1)
 
-	perlinNoise = CreateEmptyGrid(width, height)
-	amplitude = 1.0
-	totalAmplitude = 0.0
+    i1 = Interpolate(v1, v2, fractional_X)
+    i2 = Interpolate(v3, v4, fractional_X)
 
-	#for (int octave = octaveCount - 1; octave &gt;= 0; octave--)
-	for octave in range(octaveCount-1, 0, -1):
-		amplitude *= persistance
-		totalAmplitude += amplitude
+    return Interpolate(i1, i2, fractional_Y)
 
-		for i in range(width):
-			for j in range(height):
-				perlinNoise[i][j] += smoothNoise[octave][i][j] * amplitude
-	print "...done."
+def PerlinNoise_2D(x, y):
+    total = 0
+    p = 0.40
+    n = 5
 
-	# normalisation
-	print "normalising noise..."
-	for i in range(width):
-		for j in range(height):
-			perlinNoise[i][j] /= totalAmplitude
-	print "...done."
+    for i in range(n):
+        if i == 0:
+            frequency = 1
+            amplitude = 1
+        else:
+            frequency = 2*i
+            amplitude = p*i
 
-	# complete
-	return perlinNoise
+            total = total + InterpolatedNoise_2(x*frequency, y*frequency) * amplitude
 
-if __name__ == "__main__":
+    return total
 
-	print "Creating base noise..."
-	noise = GenerateWhiteNoise(500, 500, 0)
-	print "...done."
-	perlin = GeneratePerlinNoise(noise, 7)
+print "initializing screen"
+screen = pygame.display.set_mode((500,500))
+print "initializing game clock"
+clock = pygame.time.Clock()
 
-	#let's attempt to visualize this.
+print "rendering noise"
+noise = pygame.surface.Surface((200,200))
 
-	print "initializing pygame."
-	pygame.init()
+###### 1D RENDERER #######
+#for x in range(noise.get_width()):
+#    val = (PerlinNoise_1D(float(x)/150))*10
+#    y = 150+val
+#    y = int(y)
+#    pygame.gfxdraw.line(noise, x, y, x, 300, (255,255,255))
+##########################
 
-	screen = pygame.display.set_mode((520, 520))
+for x in range(noise.get_width()):
+    for y in range(noise.get_height()):
+        val = (PerlinNoise_2D(float(x)/80,float(y)/80))*10
+        val_color = val*255
+        if val_color < 0:
+            val_color = 0
+        elif val_color > 255:
+            val_color = 255
+        val_color = (val_color, val_color, val_color)
+        pygame.gfxdraw.pixel(noise,x,y,val_color)
 
-	clock = pygame.time.Clock()
+print "main loop"
+run = True
+while run:
+    clock.tick(30)
+    screen.fill((0,0,0))
+    screen.blit(noise, ((500/2)-100,(500/2)-100))
+    pygame.display.update()
 
-	# better pre-render the noise...
-	print "rendering..."
-	render = pygame.Surface((500, 500))
-	for column in range(len(perlin)):
-		for row in range(len(perlin[0])):
-			val = perlin[column][row]*255
-			color = (val, val, val)
-			render.set_at((column, row), color)
-	
-	print "...done."
-	running = True
-
-	while running:
-		
-		#render portion for noise
-
-		screen.fill((0,0,0))
-		screen.blit(render, (10,10))
-
-		pygame.display.update()
-
-		#event handling portion
-		for event in pygame.event.get():
-			if event.type == QUIT:
-				running = False
+    for event in pygame.event.get():
+        if event.type == QUIT:
+            run = False
 
 pygame.quit()
